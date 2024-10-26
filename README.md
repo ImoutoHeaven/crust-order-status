@@ -24,7 +24,7 @@ To install Node.js and npm, follow the instructions on [Node.js official website
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/your_username/crust-order-check.git
+git clone https://github.com/ImoutoHeaven/crust-order-status.git
 cd crust-order-check
 npm install
 ```
