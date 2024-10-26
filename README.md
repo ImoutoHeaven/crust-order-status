@@ -25,7 +25,7 @@ Clone the repository and install dependencies:
 
 ```bash
 git clone https://github.com/ImoutoHeaven/crust-order-status.git
-cd crust-order-check
+cd crust-order-status
 npm install
 ```
 
