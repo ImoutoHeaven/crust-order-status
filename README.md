@@ -58,7 +58,7 @@ The tool accepts command-line arguments for input and output:
 node index.js --input /path/to/text_file --out /path/to/log/file
 ```
 
-- `--input` (required): The path to the text file containing CIDs and file details.
+- `--input` (optional): The path to the text file containing CIDs and file details. If --input arg is omitted, program will ask for user-input interactively.
 - `--out` (optional): The path to save the generated log file. If omitted, the log file will be saved in the current directory.
 
 The input text file should be structured as follows:
