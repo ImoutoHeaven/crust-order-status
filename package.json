@@ -12,7 +12,6 @@
   "description": "",
   "dependencies": {
     "@babel/runtime": "^7.26.0",
-   
     "@crustio/type-definitions": "^1.3.0",
     "@polkadot/api": "^14.1.1",
     "commander": "^12.1.0",
@@ -25,7 +24,7 @@
     "crust-file-status-checker": "./index.js"
   },
   "pkg": {
-      "assets": [
+    "assets": [
       "node_modules/@polkadot/api/**/*",
       "node_modules/@polkadot/types/**/*",
       "node_modules/@polkadot/rpc-core/**/*",
@@ -58,6 +57,7 @@
       "node_modules/@crustio/**/*.js"
     ],
     "targets": [
+      "node18-linux-arm64",
       "node18-linux-x64",
       "node18-win-x64",
       "node18-macos-x64"
