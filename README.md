@@ -14,7 +14,7 @@ The project supports CLI inputs and can output results in a structured log file.
 ---
 
 ## Requirements
-- Node.js (version 14 or higher is recommended)
+- Node.js (version 18 or higher is recommended)
 - npm (Node package manager)
 
 To install Node.js and npm, follow the instructions on [Node.js official website](https://nodejs.org/).
@@ -38,6 +38,10 @@ npm install pkg --save-dev
 ```
 
 Then, you can compile the project for Linux, Windows, and macOS:
+
+```bash
+npm install
+```
 
 ```bash
 npm run build
