@@ -39,9 +39,6 @@ npm install pkg --save-dev
 
 Then, you can compile the project for Linux, Windows, and macOS:
 
-```bash
-npm install
-```
 
 ```bash
 npm run build
