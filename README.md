@@ -44,7 +44,7 @@ Then, you can compile the project for Linux, Windows, and macOS:
 npm run build
 ```
 
-This will generate executables in the root directory for each supported platform.
+This will generate executables in the root directory for platform definited at ```package.json```.
 
 ---
 
