@@ -6,7 +6,6 @@ on:
       - 'v*'  # Triggers on version tags like v1.0.0
   release:
     types: [published]  # Triggers when a release is published
-  workflow_dispatch:  # Allows manual triggering from the UI
 
 jobs:
   build:
@@ -47,6 +46,6 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./binaries/${{ runner.os }}-${{ matrix.arch }}.exe  # Adjust path as necessary
+          asset_path: ./path/to/binary/${{ runner.os }}-${{ matrix.arch }}.exe  # Adjust path as necessary
           asset_name: crust-order-status-${{ runner.os }}-${{ matrix.arch }}.exe  # Adjust naming as necessary
           asset_content_type: application/octet-stream
