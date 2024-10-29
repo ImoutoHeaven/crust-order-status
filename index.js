@@ -18,7 +18,7 @@ program.parse(process.argv);
 const options = program.opts();
 
 async function initApi() {
-  // 使用Crust网络的WS地址
+  // Use Crust network's WS address
   const chainWsUrl = 'wss://rpc.crust.network';
 
   const api = new ApiPromise({
@@ -32,11 +32,11 @@ async function initApi() {
 }
 
 function parseLine(line) {
-  // 去除两端空白
+  // Trim whitespace from both ends
   line = line.trim();
 
   if (!line) {
-    return null; // 跳过空行
+    return null; // Skip empty lines
   }
 
   let i = line.length - 1;
@@ -44,43 +44,43 @@ function parseLine(line) {
   let fileCid = '';
   let fileName = '';
 
-  let state = 0;
-
-  while (i >= 0) {
-    const char = line.charAt(i);
-
-    if (state === 0) {
-      // 解析文件大小
-      if (/\d/.test(char)) {
-        fileSize = char + fileSize;
-        i--;
-      } else if (char === ' ' || char === '\t') {
-        state = 1;
-        i--;
-      } else {
-        // 文件大小中存在非法字符
-        return null;
-      }
-    } else if (state === 1) {
-      // 解析CID
-      if (/[A-Za-z0-9]/.test(char)) {
-        fileCid = char + fileCid;
-        i--;
-      } else if (char === ' ' || char === '\t') {
-        state = 2;
-        i--;
-      } else {
-        // CID中存在非法字符
-        return null;
-      }
-    } else if (state === 2) {
-      // 解析文件名
-      fileName = line.substring(0, i + 1).trim();
-      break;
-    }
+  // Step 1: From right to left, match digits for FILE_SIZE_IN_BYTES
+  while (i >= 0 && /\d/.test(line.charAt(i))) {
+    fileSize = line.charAt(i) + fileSize;
+    i--;
   }
 
-  if (!fileName || !fileCid || !fileSize) {
+  if (!fileSize) {
+    // No file size found
+    return null;
+  }
+
+  // Step 2: Check for one or more spaces or tabs
+  while (i >= 0 && (line.charAt(i) === ' ' || line.charAt(i) === '\t')) {
+    i--;
+  }
+
+  // Step 3: Match letters and digits for FILE_CID
+  while (i >= 0 && /[A-Za-z0-9]/.test(line.charAt(i))) {
+    fileCid = line.charAt(i) + fileCid;
+    i--;
+  }
+
+  if (!fileCid) {
+    // No CID found
+    return null;
+  }
+
+  // Step 4: Check for one or more spaces or tabs
+  while (i >= 0 && (line.charAt(i) === ' ' || line.charAt(i) === '\t')) {
+    i--;
+  }
+
+  // Step 5 and 6: Remaining content is FILE_NAME, remove any '/' characters
+  fileName = line.substring(0, i + 1).trim().replace(/\//g, '');
+
+  if (!fileName) {
+    // No file name found
     return null;
   }
 
@@ -103,7 +103,7 @@ async function processLines(rl) {
 
     const results = [];
 
-    // 获取当前区块高度
+    // Get current block number
     const currentBlock = await api.rpc.chain.getHeader();
     const currentBlockNumber = currentBlock.number.toNumber();
 
@@ -142,15 +142,15 @@ async function processLines(rl) {
             fileCid: parsed.fileCid,
             fileSize: `${responseFileSize} (${parsed.fileSize})`,
             fileOnchainStatus,
-            fileReplicas
+            fileReplicas,
           });
         } catch (error) {
-          console.error(`查询CID ${parsed.fileCid} 时出错: ${error.message}`);
+          console.error(`Error querying CID ${parsed.fileCid}: ${error.message}`);
           skippedLines.push({ lineNumber, line, reason: error.message });
         }
       } else {
-        // 跳过格式错误的行
-        skippedLines.push({ lineNumber, line, reason: '格式错误' });
+        // Skip lines with incorrect format
+        skippedLines.push({ lineNumber, line, reason: 'Incorrect format' });
       }
     }
 
@@ -162,47 +162,55 @@ async function processLines(rl) {
 function outputResults(results, skippedLines) {
   const timestamp = new Date().getTime();
   const outputFileName = `check_status_${timestamp}.log`;
-  const outputFilePath = options.out ? path.resolve(options.out) : path.join(process.cwd(), outputFileName);
+  const outputFilePath = options.out
+    ? path.resolve(options.out)
+    : path.join(process.cwd(), outputFileName);
 
   const outputLines = [];
 
-  // 表格1的标题
+  // Table 1 header
   outputLines.push('FILE_NAME\tFILE_CID\tFILE_SIZE\tFILE_ONCHAIN_STATUS\tFILE_REPLICAS');
-  // 添加分隔符
+  // Separator
   outputLines.push('----');
 
-  // 表格1的数据
+  // Table 1 data
   results.forEach((item) => {
-    outputLines.push(`${item.fileName}\t${item.fileCid}\t${item.fileSize}\t${item.fileOnchainStatus}\t${item.fileReplicas}`);
+    outputLines.push(
+      `${item.fileName}\t${item.fileCid}\t${item.fileSize}\t${item.fileOnchainStatus}\t${item.fileReplicas}`
+    );
   });
 
-  // 分隔表格1和表格2
+  // Separator between tables
   outputLines.push('====');
 
-  // 表格2的标题
+  // Table 2 header
   outputLines.push('FILE_NAME FILE_CID FILE_SIZE(INPUT FILE SIZE ONLY)');
-  // 添加分隔符
+  // Separator
   outputLines.push('----');
 
-  // 表格2的数据
-  results.filter(item => item.fileOnchainStatus !== 'Success').forEach((item) => {
-    outputLines.push(`${item.fileName} ${item.fileCid} ${item.fileSize.split('(')[1].replace(')', '')}`);
-  });
+  // Table 2 data
+  results
+    .filter((item) => item.fileOnchainStatus !== 'Success')
+    .forEach((item) => {
+      outputLines.push(
+        `${item.fileName} ${item.fileCid} ${item.fileSize.split('(')[1].replace(')', '')}`
+      );
+    });
 
-  // 将结果写入文件
+  // Write results to file
   fs.writeFileSync(outputFilePath, outputLines.join('\n'));
 
-  console.log(`结果已写入 ${outputFilePath}`);
+  console.log(`Results have been written to ${outputFilePath}`);
 
-  // 读取并显示日志文件内容
+  // Read and display log file content
   const logContent = fs.readFileSync(outputFilePath, 'utf8');
-  console.log('日志文件内容如下：');
+  console.log('Log file content:');
   console.log(logContent);
 
   if (skippedLines.length > 0) {
-    console.log('以下行因错误被跳过:');
+    console.log('The following lines were skipped due to errors:');
     skippedLines.forEach((item) => {
-      console.log(`第 ${item.lineNumber} 行: ${item.reason}`);
+      console.log(`Line ${item.lineNumber}: ${item.reason}`);
     });
   }
 }
@@ -213,21 +221,20 @@ if (options.input) {
 
   const rl = readline.createInterface({
     input: inputStream,
-    crlfDelay: Infinity
+    crlfDelay: Infinity,
   });
 
   processLines(rl);
 } else {
-  // 交互式输入
+  // Interactive input
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: ''
+    prompt: '',
   });
 
-  console.log('请输入您的输入（输入完成后按 Ctrl+D 开始执行查询）：');
+  console.log('Please enter your input (press Ctrl+D when done to start querying):');
   rl.prompt();
 
   processLines(rl);
 }
-
