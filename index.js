@@ -11,11 +11,25 @@ const program = new Command();
 
 program
   .option('--input <path>', 'path to input text file')
-  .option('--out <path>', 'path to output log file');
+  .option('--out <path>', 'path to output log file')
+  .option('--save-log <boolean>', 'whether to save log file (true/false)');
 
 program.parse(process.argv);
 
 const options = program.opts();
+
+function parseBoolean(value) {
+  if (typeof value === 'string') {
+    return value.toLowerCase() === 'true';
+  }
+  return !!value;
+}
+
+const saveLog = options.out
+  ? true
+  : options.saveLog !== undefined
+  ? parseBoolean(options.saveLog)
+  : false;
 
 async function initApi() {
   // Use Crust network's WS address
@@ -154,18 +168,12 @@ async function processLines(rl) {
       }
     }
 
-    outputResults(results, skippedLines);
+    outputResults(results, skippedLines, saveLog, options);
     process.exit(0);
   });
 }
 
-function outputResults(results, skippedLines) {
-  const timestamp = new Date().getTime();
-  const outputFileName = `check_status_${timestamp}.log`;
-  const outputFilePath = options.out
-    ? path.resolve(options.out)
-    : path.join(process.cwd(), outputFileName);
-
+function outputResults(results, skippedLines, saveLog, options) {
   const outputLines = [];
 
   // Table 1 header
@@ -184,7 +192,7 @@ function outputResults(results, skippedLines) {
   outputLines.push('====');
 
   // Table 2 header
-  outputLines.push('FILE_NAME FILE_CID FILE_SIZE(INPUT FILE SIZE ONLY)');
+  outputLines.push('FILE_NAME\tFILE_CID\tFILE_SIZE(INPUT FILE SIZE ONLY)');
   // Separator
   outputLines.push('----');
 
@@ -193,19 +201,31 @@ function outputResults(results, skippedLines) {
     .filter((item) => item.fileOnchainStatus !== 'Success')
     .forEach((item) => {
       outputLines.push(
-        `${item.fileName} ${item.fileCid} ${item.fileSize.split('(')[1].replace(')', '')}`
+        `${item.fileName}\t${item.fileCid}\t${item.fileSize.split('(')[1].replace(')', '')}`
       );
     });
 
-  // Write results to file
-  fs.writeFileSync(outputFilePath, outputLines.join('\n'));
+  if (saveLog) {
+    const timestamp = new Date().getTime();
+    const outputFileName = `check_status_${timestamp}.log`;
+    const outputFilePath = options.out
+      ? path.resolve(options.out)
+      : path.join(process.cwd(), outputFileName);
 
-  console.log(`Results have been written to ${outputFilePath}`);
+    // Write results to file
+    fs.writeFileSync(outputFilePath, outputLines.join('\n'));
 
-  // Read and display log file content
-  const logContent = fs.readFileSync(outputFilePath, 'utf8');
-  console.log('Log file content:');
-  console.log(logContent);
+    console.log(`Results have been written to ${outputFilePath}`);
+
+    // Read and display log file content
+    const logContent = fs.readFileSync(outputFilePath, 'utf8');
+    console.log('Log file content:');
+    console.log(logContent);
+  } else {
+    // Do not save the log file; print the results to console
+    console.log('Results:');
+    console.log(outputLines.join('\n'));
+  }
 
   if (skippedLines.length > 0) {
     console.log('The following lines were skipped due to errors:');
