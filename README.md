@@ -55,7 +55,7 @@ This will generate executables in the root directory for platform defined at ```
 The tool accepts command-line arguments for input and output:
 
 ```bash
-node index.js --input /path/to/text_file --out /path/to/log/file
+node index.js --input /path/to/text_file --out /path/to/log/file [--save-log=true/false]
 ```
 
 - `--input` (optional): The path to the text file containing CIDs and file details. If --input arg is omitted, program will ask for user-input interactively.
