@@ -61,7 +61,7 @@ node index.js --input /path/to/text_file --out /path/to/log/file [--save-log=tru
 - `--input` (optional): The path to the text file containing CIDs and file details. If --input arg is omitted, program will ask for user-input interactively.
 - `--out` (optional): The path to save the generated log file. If omitted, the log file will be saved in the current directory.
 - `--save-log=true/false` (optional): Decide whether program save logs at default output directory. Default is false which means program will NOT save log at current path. This argument is omitted when combining usage with ```--out``` argument, which will force-save log at the specified out path.
-
+- `--min-replicas-count=<integer>` (optional): When this argument is specified, program will pick those FILE_REPLICAS count lower than user specified number lines into TABLE 2 for re-ordering. Default Value is 3.
 
 The input text file should be structured as follows:
 
