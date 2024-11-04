@@ -13,7 +13,8 @@ program
   .option('--input <path>', 'path to input text file')
   .option('--out <path>', 'path to output log file')
   .option('--save-log <boolean>', 'whether to save log file (true/false)')
-  .option('--min-replicas-count <number>', 'minimum replicas count', '3');
+  .option('--min-replicas-count <number>', 'minimum replicas count', '3')
+  .option('--save-log-mode <mode>', "log save mode: 'default' or 'table2'", 'default');
 
 program.parse(process.argv);
 
@@ -26,16 +27,28 @@ function parseBoolean(value) {
   return !!value;
 }
 
-const saveLog = options.out
-  ? true
-  : options.saveLog !== undefined
-  ? parseBoolean(options.saveLog)
-  : false;
-
 const minReplicasCount = parseInt(options.minReplicasCount, 10) || 3;
 
+// Determine if the user specified --save-log-mode
+const saveLogModeSpecified =
+  program.getOptionValueSource('saveLogMode') !== 'default';
+
+const saveLogMode = options.saveLogMode || 'default';
+
+let saveLog;
+if (saveLogModeSpecified) {
+  // When --save-log-mode is specified, saveLog is true regardless of --save-log
+  saveLog = true;
+} else if (options.out) {
+  saveLog = true;
+} else if (options.saveLog !== undefined) {
+  saveLog = parseBoolean(options.saveLog);
+} else {
+  saveLog = false;
+}
+
 async function initApi() {
-  // 使用 Crust 网络的 WS 地址
+  // Use Crust Network's WS address
   const chainWsUrl = 'wss://rpc.crust.network';
 
   const api = new ApiPromise({
@@ -49,11 +62,11 @@ async function initApi() {
 }
 
 function parseLine(line) {
-  // 去除两端的空白字符
+  // Trim whitespace
   line = line.trim();
 
   if (!line) {
-    return null; // 跳过空行
+    return null; // Skip empty lines
   }
 
   let i = line.length - 1;
@@ -61,43 +74,43 @@ function parseLine(line) {
   let fileCid = '';
   let fileName = '';
 
-  // 步骤1：从右向左匹配数字作为 FILE_SIZE_IN_BYTES
+  // Step 1: Match digits from right to left as FILE_SIZE_IN_BYTES
   while (i >= 0 && /\d/.test(line.charAt(i))) {
     fileSize = line.charAt(i) + fileSize;
     i--;
   }
 
   if (!fileSize) {
-    // 未找到文件大小
+    // File size not found
     return null;
   }
 
-  // 步骤2：检查一个或多个空格或制表符
+  // Step 2: Check for spaces or tabs
   while (i >= 0 && (line.charAt(i) === ' ' || line.charAt(i) === '\t')) {
     i--;
   }
 
-  // 步骤3：匹配字母和数字作为 FILE_CID
+  // Step 3: Match alphanumeric characters as FILE_CID
   while (i >= 0 && /[A-Za-z0-9]/.test(line.charAt(i))) {
     fileCid = line.charAt(i) + fileCid;
     i--;
   }
 
   if (!fileCid) {
-    // 未找到 CID
+    // CID not found
     return null;
   }
 
-  // 步骤4：检查一个或多个空格或制表符
+  // Step 4: Check for spaces or tabs
   while (i >= 0 && (line.charAt(i) === ' ' || line.charAt(i) === '\t')) {
     i--;
   }
 
-  // 步骤5和6：剩余内容作为 FILE_NAME，移除任何 '/' 字符
+  // Steps 5 and 6: Remaining content as FILE_NAME, remove any '/' characters
   fileName = line.substring(0, i + 1).trim().replace(/\//g, '');
 
   if (!fileName) {
-    // 未找到文件名
+    // File name not found
     return null;
   }
 
@@ -120,7 +133,7 @@ async function processLines(rl) {
 
     const results = [];
 
-    // 获取当前区块号
+    // Get current block number
     const currentBlock = await api.rpc.chain.getHeader();
     const currentBlockNumber = currentBlock.number.toNumber();
 
@@ -166,7 +179,7 @@ async function processLines(rl) {
           skippedLines.push({ lineNumber, line, reason: error.message });
         }
       } else {
-        // 跳过格式不正确的行
+        // Skip incorrectly formatted lines
         skippedLines.push({ lineNumber, line, reason: 'Incorrect format' });
       }
     }
@@ -177,64 +190,92 @@ async function processLines(rl) {
 }
 
 function outputResults(results, skippedLines, saveLog, options) {
-  const outputLines = [];
+  const saveLogMode = options.saveLogMode || 'default';
+  const minReplicasCount = parseInt(options.minReplicasCount, 10) || 3;
 
-  // TABLE 1 头部
-  outputLines.push('FILE_NAME\tFILE_CID\tFILE_SIZE\tFILE_ONCHAIN_STATUS\tFILE_REPLICAS');
-  // 分隔符
-  outputLines.push('----');
+  const table1Lines = [];
+  // TABLE 1 HEADER
+  table1Lines.push('FILE_NAME\tFILE_CID\tFILE_SIZE\tFILE_ONCHAIN_STATUS\tFILE_REPLICAS');
+  // Separator
+  table1Lines.push('----');
 
-  // TABLE 1 数据
+  // TABLE 1 DATA
   results.forEach((item) => {
-    outputLines.push(
+    table1Lines.push(
       `${item.fileName}\t${item.fileCid}\t${item.fileSize}\t${item.fileOnchainStatus}\t${item.fileReplicas}`
     );
   });
 
-  // 两个表之间的分隔符
-  outputLines.push('====');
+  // TABLE 2 HEADER
+  const table2Lines = [];
+  table2Lines.push('FILE_NAME\tFILE_CID\tFILE_SIZE(INPUT FILE SIZE ONLY)');
+  // Separator
+  table2Lines.push('----');
 
-  // TABLE 2 头部
-  outputLines.push('FILE_NAME\tFILE_CID\tFILE_SIZE(INPUT FILE SIZE ONLY)');
-  // 分隔符
-  outputLines.push('----');
-
-  // TABLE 2 数据
-  results
+  const table2Data = results
     .filter(
       (item) =>
         item.fileOnchainStatus !== 'Success' ||
         (item.fileOnchainStatus === 'Success' && item.fileReplicas < minReplicasCount)
     )
-    .forEach((item) => {
-      // 提取输入文件大小部分
+    .map((item) => {
+      // Extract input file size part
       const inputFileSizeMatch = item.fileSize.match(/\((\d+)\)/);
       const inputFileSize = inputFileSizeMatch ? inputFileSizeMatch[1] : 'Unknown';
 
-      outputLines.push(
-        `${item.fileName}\t${item.fileCid}\t${inputFileSize}`
-      );
+      return `${item.fileName}\t${item.fileCid}\t${inputFileSize}`;
     });
 
+  table2Lines.push(...table2Data);
+
   if (saveLog) {
+    let outputLines = [];
+
+    if (saveLogMode === 'default') {
+      // Include TABLE1 and TABLE2 with headers
+      outputLines.push(...table1Lines);
+      outputLines.push('====');
+      outputLines.push(...table2Lines);
+    } else if (saveLogMode === 'table2') {
+      if (table2Data.length === 0) {
+        // TABLE2 is empty
+        console.log('TABLE2 is empty, no log file generated');
+        // Skip generating the log file
+        return;
+      } else {
+        // Output only TABLE2 data, without headers
+        outputLines.push(...table2Data);
+      }
+    } else {
+      // Default behavior
+      outputLines.push(...table1Lines);
+      outputLines.push('====');
+      outputLines.push(...table2Lines);
+    }
+
+    // Write outputLines to file
     const timestamp = new Date().getTime();
     const outputFileName = `check_status_${timestamp}.log`;
     const outputFilePath = options.out
       ? path.resolve(options.out)
       : path.join(process.cwd(), outputFileName);
 
-    // 将结果写入文件
+    // Write the results to file
     fs.writeFileSync(outputFilePath, outputLines.join('\n'));
 
     console.log(`Results have been written to ${outputFilePath}`);
 
-    // 读取并显示日志文件内容
+    // Read and display log file content
     const logContent = fs.readFileSync(outputFilePath, 'utf8');
     console.log('Log file content:');
     console.log(logContent);
   } else {
-    // 不保存日志文件，直接打印结果到控制台
+    // Do not save log file, output results to console
     console.log('Results:');
+    let outputLines = [];
+    outputLines.push(...table1Lines);
+    outputLines.push('====');
+    outputLines.push(...table2Lines);
     console.log(outputLines.join('\n'));
   }
 
@@ -257,7 +298,7 @@ if (options.input) {
 
   processLines(rl);
 } else {
-  // 交互式输入
+  // Interactive input
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
