@@ -62,7 +62,8 @@ node index.js --input /path/to/text_file --out /path/to/log/file [--save-log=tru
 - `--out` (optional): The path to save the generated log file. If omitted, the log file will be saved in the current directory.
 - `--save-log=true/false` (optional): Decide whether program save logs at default output directory. Default is false which means program will NOT save log at current path. This argument is omitted when combining usage with ```--out``` argument, which will force-save log at the specified out path.
 - `--min-replicas-count=<integer>` (optional): When this argument is specified, program will pick those FILE_REPLICAS count lower than user specified number lines into TABLE 2 for re-ordering. Default Value is 3.
-
+- `--save-log-mode <mode>` (optional): The mode for saving logs. Options: default (default): Outputs logs containing both TABLE1 and TABLE2 with headers.
+                                                                          table2: Outputs logs containing only TABLE2 without headers. If TABLE2 is empty, logs will not be generated, and a message will be printed to the console.
 The input text file should be structured as follows:
 
 ```
