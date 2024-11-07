@@ -22,7 +22,7 @@ A command-line tool to check the storage status of files on the Crust Network. T
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/ImoutoHeaven/crust-order-status.git
 cd crust-file-status-checker
 ```
 
