@@ -1,116 +1,146 @@
+# Crust File Status Checker
 
-# Crust Order Check
-
-`Crust Order Check` is a Node.js-based CLI tool for checking the on-chain order status of NFT files on the [Crust Network](https://crust.network/). 
-This tool interacts with Crust's decentralized storage to monitor file storage status, helping users verify NFT file replicas, storage status, and order details. 
-The project supports CLI inputs and can output results in a structured log file.
+A command-line tool to check the storage status of files on the Crust Network. This tool allows you to verify file replication status, size, and other on-chain information for files stored on Crust Network.
 
 ## Features
-- Query the on-chain storage status of NFT files based on CID.
-- Supports command-line input of CID lists from a text file.
-- Outputs order status, replica count, and storage details for each file.
-- Auto-generates a structured log file of results with customizable output location.
 
----
+- Check file storage status on Crust Network
+- Support for batch processing via input file
+- Interactive input mode
+- Configurable minimum replicas count
+- Flexible logging options with different output formats
+- Cross-platform support (Linux, Windows)
 
-## Requirements
-- Node.js (version 18 or higher is recommended)
-- npm (Node package manager)
+## Prerequisites
 
-To install Node.js and npm, follow the instructions on [Node.js official website](https://nodejs.org/).
+- Node.js 18 or higher
+- npm or yarn package manager
 
 ## Installation
 
-Clone the repository and install dependencies:
+### From Source
 
+1. Clone the repository:
 ```bash
-git clone https://github.com/ImoutoHeaven/crust-order-status.git
-cd crust-order-status
+git clone <repository-url>
+cd crust-file-status-checker
+```
+
+2. Install dependencies:
+```bash
 npm install
+# or
+yarn install
 ```
 
-## Compilation (Optional)
+### Using Binary
 
-To compile this project into standalone executables for different platforms, `pkg` is used. Run the following command to install `pkg` as a development dependency:
+Pre-built binaries are available for the following platforms:
+- Linux (ARM64)
+- Linux (x64)
+- Windows (x64)
 
+Download the appropriate binary for your platform from the releases page.
+
+## Compilation Guide
+
+To compile the application into standalone binaries:
+
+1. Install development dependencies:
 ```bash
-npm install pkg --save-dev
+npm install
+# or
+yarn install
 ```
 
-Then, you can compile the project for Linux, Windows, and macOS:
-
-
+2. Build the binaries:
 ```bash
 npm run build
+# or
+yarn build
 ```
 
-This will generate executables in the root directory for platform defined at ```package.json```.
-
----
+This will create executables in the `dist` directory for the following platforms:
+- `crust-file-status-checker-linux-arm64`
+- `crust-file-status-checker-linux-x64`
+- `crust-file-status-checker-win-x64.exe`
 
 ## Usage
 
-### CLI Usage
+### Input Format
 
-The tool accepts command-line arguments for input and output:
+Each line in the input should follow this format:
+```
+FILE_NAME FILE_CID FILE_SIZE_IN_BYTES
+```
 
+Example:
+```
+example.txt QmXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 1234567
+```
+
+### Command Line Options
+
+```
+Options:
+  --input <path>                 Path to input text file
+  --out <path>                   Path to output log file
+  --save-log <boolean>           Whether to save log file (true/false)
+  --min-replicas-count <number>  Minimum replicas count (default: 3)
+  --save-log-mode <mode>         Log save mode: 'default' or 'table2' (default: 'default')
+```
+
+### Running the Tool
+
+#### Interactive Mode
 ```bash
-node index.js --input /path/to/text_file --out /path/to/log/file [--save-log=true/false]
+node index.js
+# or if using binary
+./crust-file-status-checker
 ```
 
-- `--input` (optional): The path to the text file containing CIDs and file details. If --input arg is omitted, program will ask for user-input interactively.
-- `--out` (optional): The path to save the generated log file. If omitted, the log file will be saved in the current directory.
-- `--save-log=true/false` (optional): Decide whether program save logs at default output directory. Default is false which means program will NOT save log at current path. This argument is omitted when combining usage with ```--out``` argument, which will force-save log at the specified out path.
-- `--min-replicas-count=<integer>` (optional): When this argument is specified, program will pick those FILE_REPLICAS count lower than user specified number lines into TABLE 2 for re-ordering. Default Value is 3.
-- `--save-log-mode <mode>` (optional): The mode for saving logs. Options: default (default): Outputs logs containing both TABLE1 and TABLE2 with headers.
-                                                                          table2: Outputs logs containing only TABLE2 without headers. If TABLE2 is empty, logs will not be generated, and a message will be printed to the console.
-
-
-  
-The input text file should be structured as follows:
-
-```
-<FILE_NAME1> <FILE_CID1> <INPUT_FILE_SIZE_1>
-<FILE_NAME2> <FILE_CID2> <INPUT_FILE_SIZE_2>
-```
-
-Each line represents one file, with file name, CID, and file size separated by spaces or tabs.
-
-### Usage Example
-
-Example `input.txt` file:
-
-```
-MyFile QmTmSeh1vU6gXe1J8L2W8qY6X5oYx4GLjCzSyhTYehH7aV 123456
-AnotherFile QmYwAPJzv5CZsnAzt8auVZRn2tW9vJYw4KPsxX8bQ 789012
-```
-
-Run the tool:
-
+#### File Input Mode
 ```bash
-node index.js --input ./input.txt --out ./output.log
+node index.js --input input.txt --save-log true
+# or if using binary
+./crust-file-status-checker --input input.txt --save-log true
 ```
 
-Sample output in `output.log`:
+### Output Format
 
+The tool generates two tables:
+
+#### Table 1
+Contains complete information for all files:
+- FILE_NAME
+- FILE_CID
+- FILE_SIZE
+- FILE_ONCHAIN_STATUS
+- FILE_REPLICAS
+
+#### Table 2
+Contains files that either:
+- Are not successfully stored
+- Have fewer replicas than the minimum requirement
+
+## Log Modes
+
+### Default Mode
+Includes both Table 1 and Table 2 in the output.
+
+### Table2 Mode
+Only outputs Table 2, which is useful for identifying files that need attention.
+```bash
+node index.js --input input.txt --save-log-mode table2
 ```
-FILE_NAME	FILE_CID	FILE_SIZE	FILE_ONCHAIN_STATUS	FILE_REPLICAS
-----
-MyFile	QmTmSeh1vU6gXe1J8L2W8qY6X5oYx4GLjCzSyhTYehH7aV	Unknown (123456)	NotFound	0
-AnotherFile	QmYwAPJzv5CZsnAzt8auVZRn2tW9vJYw4KPsxX8bQ	Unknown (789012)	NotFound	0
-====
-FILE_NAME FILE_CID FILE_SIZE(INPUT FILE SIZE ONLY)
-----
-MyFile QmTmSeh1vU6gXe1J8L2W8qY6X5oYx4GLjCzSyhTYehH7aV 123456
-AnotherFile QmYwAPJzv5CZsnAzt8auVZRn2tW9vJYw4KPsxX8bQ 789012
-```
-
----
-
-## Additional Notes
-- The tool connects to Crust Network via the WebSocket endpoint `wss://rpc.crust.network`. Ensure network access to this endpoint.
-- The log file includes table separators (`----` and `====`) for easy readability and parsing.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+ISC
+
+## Dependencies
+
+- @polkadot/api: Polkadot/Substrate API wrapper
+- @crustio/type-definitions: Crust Network type definitions
+- commander: Command-line interface
+- readline: Interactive input handling
