@@ -11,73 +11,54 @@ on:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        include:
-          - os: ubuntu-latest
-            output_name: crust-file-status-checker-linux
-          - os: windows-latest
-            output_name: crust-file-status-checker-win.exe
-
+    name: Build with Docker
+    runs-on: ubuntu-latest
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
 
-    - name: Install dependencies
-      run: npm ci
-
-    - name: Build executables
-      run: npm run build
-
-    # For Linux, we need to handle both x64 and ARM64 binaries
-    - name: Handle Linux binaries
-      if: matrix.os == 'ubuntu-latest'
+    - name: Build in Docker
       run: |
-        mkdir -p dist
-        # List all files to see what pkg created
-        ls -la
-        # The binary name is defined in package.json's bin field as "crust-file-status-checker"
-        if [ -f "crust-file-status-checker-linux-x64" ]; then
-          cp crust-file-status-checker-linux-x64 dist/
-        elif [ -f "crust-file-status-checker-node18-linux-x64" ]; then
-          cp crust-file-status-checker-node18-linux-x64 dist/crust-file-status-checker-linux-x64
-        fi
+        # Create a Dockerfile for the build
+        cat > Dockerfile << 'EOF'
+        FROM node:18-buster
+        WORKDIR /app
+        COPY . .
+        RUN npm ci
+        RUN npx pkg . --targets node18-linux-x64,node18-linux-arm64,node18-win-x64 --output dist/crust-file-status-checker
+        CMD ["ls", "-la", "dist"]
+        EOF
         
-        if [ -f "crust-file-status-checker-linux-arm64" ]; then
-          cp crust-file-status-checker-linux-arm64 dist/
-        elif [ -f "crust-file-status-checker-node18-linux-arm64" ]; then
-          cp crust-file-status-checker-node18-linux-arm64 dist/crust-file-status-checker-linux-arm64
-        fi
-      shell: bash
+        # Build and run the Docker image
+        docker build -t crust-build .
+        docker create --name extract crust-build
+        docker cp extract:/app/dist ./dist
+        docker rm -f extract
+        
+        # List the generated files
+        ls -la dist/
 
-    # For Windows, we have just the x64 binary
-    - name: Handle Windows binary
-      if: matrix.os == 'windows-latest'
-      run: |
-        mkdir -p dist
-        dir
-        if exist "crust-file-status-checker-win-x64.exe" (
-          copy crust-file-status-checker-win-x64.exe dist\
-        ) else if exist "crust-file-status-checker-node18-win-x64.exe" (
-          copy crust-file-status-checker-node18-win-x64.exe dist\crust-file-status-checker-win-x64.exe
-        )
-      shell: cmd
-
-    # Upload artifacts for each build
-    - name: Upload Linux artifacts
-      if: matrix.os == 'ubuntu-latest'
+    - name: Upload Linux x64 artifact
       uses: actions/upload-artifact@v4
       with:
-        name: crust-file-status-checker-linux
-        path: dist/
+        name: crust-file-status-checker-linux-x64
+        path: dist/crust-file-status-checker-linux-x64
+
+    - name: Upload Linux ARM64 artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: crust-file-status-checker-linux-arm64
+        path: dist/crust-file-status-checker-linux-arm64
+
+    - name: Upload Windows artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: crust-file-status-checker-win-x64
+        path: dist/crust-file-status-checker-win-x64.exe
 
   # Optional job to create a release with the binaries
   release:
@@ -96,7 +77,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/crust-file-status-checker-linux/**/*
-            artifacts/crust-file-status-checker-windows/**/*
+            artifacts/crust-file-status-checker-linux-x64/crust-file-status-checker-linux-x64
+            artifacts/crust-file-status-checker-linux-arm64/crust-file-status-checker-linux-arm64
+            artifacts/crust-file-status-checker-win-x64/crust-file-status-checker-win-x64.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
