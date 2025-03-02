@@ -50,7 +50,10 @@ if (saveLogModeSpecified) {
 
 async function initApi() {
   // Use Crust Network's WS address from command line or default
-  const chainWsUrl = options.address;
+  let chainWsUrl = options.address;
+  
+  // Normalize URL by removing trailing slash if present
+  chainWsUrl = chainWsUrl.endsWith('/') ? chainWsUrl.slice(0, -1) : chainWsUrl;
 
   const api = new ApiPromise({
     provider: new WsProvider(chainWsUrl),
