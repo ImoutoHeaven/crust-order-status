@@ -30,7 +30,6 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        cache: 'npm'
 
     - name: Install dependencies
       run: npm ci
@@ -39,43 +38,46 @@ jobs:
       run: npm run build
 
     # For Linux, we need to handle both x64 and ARM64 binaries
-    - name: Rename Linux binaries
+    - name: Handle Linux binaries
       if: matrix.os == 'ubuntu-latest'
       run: |
         mkdir -p dist
-        cp crust-file-status-checker-linux-x64 dist/crust-file-status-checker-linux-x64
-        cp crust-file-status-checker-linux-arm64 dist/crust-file-status-checker-linux-arm64
+        # List all files to see what pkg created
+        ls -la
+        # The binary name is defined in package.json's bin field as "crust-file-status-checker"
+        if [ -f "crust-file-status-checker-linux-x64" ]; then
+          cp crust-file-status-checker-linux-x64 dist/
+        elif [ -f "crust-file-status-checker-node18-linux-x64" ]; then
+          cp crust-file-status-checker-node18-linux-x64 dist/crust-file-status-checker-linux-x64
+        fi
+        
+        if [ -f "crust-file-status-checker-linux-arm64" ]; then
+          cp crust-file-status-checker-linux-arm64 dist/
+        elif [ -f "crust-file-status-checker-node18-linux-arm64" ]; then
+          cp crust-file-status-checker-node18-linux-arm64 dist/crust-file-status-checker-linux-arm64
+        fi
       shell: bash
 
     # For Windows, we have just the x64 binary
-    - name: Rename Windows binary
+    - name: Handle Windows binary
       if: matrix.os == 'windows-latest'
       run: |
         mkdir -p dist
-        copy crust-file-status-checker-win-x64.exe dist\crust-file-status-checker-win-x64.exe
+        dir
+        if exist "crust-file-status-checker-win-x64.exe" (
+          copy crust-file-status-checker-win-x64.exe dist\
+        ) else if exist "crust-file-status-checker-node18-win-x64.exe" (
+          copy crust-file-status-checker-node18-win-x64.exe dist\crust-file-status-checker-win-x64.exe
+        )
       shell: cmd
 
     # Upload artifacts for each build
-    - name: Upload Linux x64 artifact
+    - name: Upload Linux artifacts
       if: matrix.os == 'ubuntu-latest'
       uses: actions/upload-artifact@v4
       with:
-        name: crust-file-status-checker-linux-x64
-        path: dist/crust-file-status-checker-linux-x64
-
-    - name: Upload Linux ARM64 artifact
-      if: matrix.os == 'ubuntu-latest'
-      uses: actions/upload-artifact@v4
-      with:
-        name: crust-file-status-checker-linux-arm64
-        path: dist/crust-file-status-checker-linux-arm64
-
-    - name: Upload Windows artifact
-      if: matrix.os == 'windows-latest'
-      uses: actions/upload-artifact@v4
-      with:
-        name: crust-file-status-checker-win-x64
-        path: dist/crust-file-status-checker-win-x64.exe
+        name: crust-file-status-checker-linux
+        path: dist/
 
   # Optional job to create a release with the binaries
   release:
@@ -94,8 +96,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/crust-file-status-checker-linux-x64/crust-file-status-checker-linux-x64
-            artifacts/crust-file-status-checker-linux-arm64/crust-file-status-checker-linux-arm64
-            artifacts/crust-file-status-checker-win-x64/crust-file-status-checker-win-x64.exe
+            artifacts/crust-file-status-checker-linux/**/*
+            artifacts/crust-file-status-checker-windows/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
