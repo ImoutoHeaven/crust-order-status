@@ -14,7 +14,8 @@ program
   .option('--out <path>', 'path to output log file')
   .option('--save-log <boolean>', 'whether to save log file (true/false)')
   .option('--min-replicas-count <number>', 'minimum replicas count', '3')
-  .option('--save-log-mode <mode>', "log save mode: 'default' or 'table2'", 'default');
+  .option('--save-log-mode <mode>', "log save mode: 'default' or 'table2'", 'default')
+  .option('--address <url>', 'Crust Network WebSocket address', 'wss://rpc-crust-mainnet.decoo.io/');
 
 program.parse(process.argv);
 
@@ -48,8 +49,8 @@ if (saveLogModeSpecified) {
 }
 
 async function initApi() {
-  // Use Crust Network's WS address
-  const chainWsUrl = 'wss://rpc.crust.network';
+  // Use Crust Network's WS address from command line or default
+  const chainWsUrl = options.address;
 
   const api = new ApiPromise({
     provider: new WsProvider(chainWsUrl),
