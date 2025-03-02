@@ -9,16 +9,13 @@ on:
     types: [created]
   workflow_dispatch:  # Allows manual triggering
 
-# 添加权限配置
-permissions:
-  contents: write
-  packages: write
-  actions: read
-
 jobs:
   build:
     name: Build with Docker
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
     
     steps:
     - name: Checkout code
@@ -81,6 +78,9 @@ jobs:
         with:
           path: artifacts
 
+      - name: List downloaded artifacts
+        run: ls -R artifacts/
+
       - name: Upload binaries to release
         uses: softprops/action-gh-release@v1
         with:
@@ -88,5 +88,6 @@ jobs:
             artifacts/crust-file-status-checker-linux-x64/crust-file-status-checker-linux-x64
             artifacts/crust-file-status-checker-linux-arm64/crust-file-status-checker-linux-arm64
             artifacts/crust-file-status-checker-win-x64/crust-file-status-checker-win-x64.exe
+          tag_name: ${{ github.ref_name }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
