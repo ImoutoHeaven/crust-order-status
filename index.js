@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+// Explicitly use CommonJS for compatibility with pkg
 const fs = require('fs');
 const path = require('path');
 const { ApiPromise, WsProvider } = require('@polkadot/api');
