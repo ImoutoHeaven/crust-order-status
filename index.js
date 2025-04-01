@@ -1,37 +1,11 @@
 #!/usr/bin/env node
 
-// Explicitly use CommonJS for compatibility with pkg
 const fs = require('fs');
 const path = require('path');
 const { ApiPromise, WsProvider } = require('@polkadot/api');
 const { typesBundleForPolkadot } = require('@crustio/type-definitions');
 const { Command } = require('commander');
 const readline = require('readline');
-
-// JSDoc type definitions instead of TypeScript interfaces
-/**
- * @typedef {Object} ParsedLine
- * @property {string} fileName
- * @property {string} fileCid
- * @property {number} fileSize
- */
-
-/**
- * @typedef {Object} ResultItem
- * @property {string} fileName
- * @property {string} fileCid
- * @property {string} fileSize
- * @property {string} fileOnchainStatus
- * @property {number} fileReplicas
- */
-
-/**
- * @typedef {Object} SkippedLine
- * @property {number} lineNumber
- * @property {string} line
- * @property {string} reason
- * @property {ParsedLine} [parsedData]
- */
 
 const program = new Command();
 
@@ -82,15 +56,17 @@ async function initApi() {
     // Normalize URL by removing trailing slash if present
     chainWsUrl = chainWsUrl.endsWith('/') ? chainWsUrl.slice(0, -1) : chainWsUrl;
 
+    console.log(`Connecting to ${chainWsUrl}...`);
     const api = new ApiPromise({
       provider: new WsProvider(chainWsUrl),
       typesBundle: typesBundleForPolkadot,
     });
 
     await api.isReady;
+    console.log(`Successfully connected to ${chainWsUrl}`);
     return api;
   } catch (error) {
-    console.error(`Error initializing API: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`Failed to initialize API: ${error.message}`);
     throw error;
   }
 }
@@ -155,340 +131,339 @@ function parseLine(line) {
   };
 }
 
-// Helper function for retrying API calls with exponential backoff
-async function retryOperation(
-  operation,
-  maxRetries = 3,
-  initialDelay = 1000,
-  factor = 2
-) {
-  let currentRetry = 0;
-  let delay = initialDelay;
+async function queryCidWithRetry(api, parsedLine, currentBlockNumber) {
+  let attempts = 0;
+  const maxAttempts = 3;
+  let lastError = null;
 
-  while (true) {
+  while (attempts < maxAttempts) {
+    attempts++;
     try {
-      return await operation();
-    } catch (err) {
-      currentRetry++;
-      if (currentRetry >= maxRetries) {
-        throw err; // Max retries reached, re-throw the error
-      }
+      console.log(`Querying CID ${parsedLine.fileCid} (Attempt ${attempts}/${maxAttempts})`);
       
-      // Wait for a delay before retrying
-      await new Promise(resolve => setTimeout(resolve, delay));
-      delay *= factor; // Exponential backoff
+      const orderState = await api.query.market.filesV2(parsedLine.fileCid);
+      const orderJson = orderState.toJSON();
+
+      let fileOnchainStatus = 'NotFound';
+      let fileReplicas = 0;
+      let responseFileSize = 'Unknown';
+
+      if (orderJson && orderJson.file_size) {
+        responseFileSize = orderJson.file_size;
+        fileReplicas = parseInt(orderJson.reported_replica_count || 0, 10);
+
+        const expiredAt = orderJson.expired_at || 0;
+
+        if (currentBlockNumber >= expiredAt) {
+          fileOnchainStatus = 'Expired';
+        } else if (fileReplicas > 0) {
+          fileOnchainStatus = 'Success';
+        } else {
+          fileOnchainStatus = 'Pending';
+        }
+      } else {
+        fileOnchainStatus = 'NotFound';
+      }
+
+      return {
+        fileName: parsedLine.fileName,
+        fileCid: parsedLine.fileCid,
+        fileSize: `${responseFileSize} (${parsedLine.fileSize})`,
+        fileOnchainStatus,
+        fileReplicas,
+        success: true
+      };
+      
+    } catch (error) {
+      lastError = error;
+      console.error(`Error querying CID ${parsedLine.fileCid} (Attempt ${attempts}/${maxAttempts}): ${error.message}`);
+      
+      if (attempts < maxAttempts) {
+        // Wait before retrying
+        const retryDelay = 2000; // 2 seconds
+        console.log(`Retrying in ${retryDelay/1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
     }
   }
-}
-
-async function queryFileCid(api, fileCid, currentBlockNumber) {
-  return retryOperation(async () => {
-    const orderState = await api.query.market.filesV2(fileCid);
-    const orderJson = orderState.toJSON();
-    
-    let fileOnchainStatus = 'NotFound';
-    let fileReplicas = 0;
-    let responseFileSize = 'Unknown';
-
-    if (orderJson && orderJson.file_size) {
-      responseFileSize = orderJson.file_size;
-      fileReplicas = parseInt(orderJson.reported_replica_count || 0, 10);
-
-      const expiredAt = orderJson.expired_at || 0;
-
-      if (currentBlockNumber >= expiredAt) {
-        fileOnchainStatus = 'Expired';
-      } else if (fileReplicas > 0) {
-        fileOnchainStatus = 'Success';
-      } else {
-        fileOnchainStatus = 'Pending';
-      }
-    } else {
-      fileOnchainStatus = 'NotFound';
-    }
-
-    return {
-      fileOnchainStatus,
-      fileReplicas,
-      responseFileSize
-    };
-  });
+  
+  // All attempts failed
+  return {
+    success: false,
+    error: lastError ? lastError.message : 'Unknown error'
+  };
 }
 
 async function processLines(rl) {
-  try {
-    const lines = [];
-    
-    // Read all lines into memory first
-    await new Promise((resolve) => {
-      rl.on('line', (line) => {
-        lines.push(line);
-      });
-      
-      rl.on('close', () => {
-        resolve();
-      });
-    });
+  const lines = [];
+  
+  rl.on('line', (line) => {
+    lines.push(line);
+  });
 
+  rl.on('close', async () => {
     let api;
-    let currentBlockNumber;
-    
     try {
-      // Initialize API once before processing
       api = await initApi();
-      
-      // Get current block number
-      const currentBlock = await api.rpc.chain.getHeader();
-      currentBlockNumber = currentBlock.number.toNumber();
     } catch (error) {
-      console.error(`Fatal error initializing API: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`Failed to initialize API: ${error.message}`);
+      // Don't exit, try to continue with the rest of the processing
+      console.log('Continuing without API connection...');
+    }
+
+    if (!api) {
+      console.error('No API connection available. Exiting...');
       process.exit(1);
     }
 
     const results = [];
     const skippedLines = [];
 
-    // Process each line sequentially
+    // Get current block number
+    let currentBlockNumber = 0;
+    try {
+      const currentBlock = await api.rpc.chain.getHeader();
+      currentBlockNumber = currentBlock.number.toNumber();
+      console.log(`Current block number: ${currentBlockNumber}`);
+    } catch (error) {
+      console.error(`Error getting current block: ${error.message}`);
+      console.error('Continuing with block number set to 0...');
+    }
+
+    // Process each line individually
     for (let i = 0; i < lines.length; i++) {
       const lineNumber = i + 1;
       const line = lines[i];
-      const parsed = parseLine(line);
       
+      console.log(`Processing line ${lineNumber}/${lines.length}: ${line}`);
+      
+      const parsed = parseLine(line);
       if (!parsed) {
-        // Skip incorrectly formatted lines
+        console.log(`Line ${lineNumber}: Skipping - Incorrect format`);
         skippedLines.push({ lineNumber, line, reason: 'Incorrect format' });
         continue;
       }
-      
+
       try {
-        const queryResult = await queryFileCid(api, parsed.fileCid, currentBlockNumber);
+        const queryResult = await queryCidWithRetry(api, parsed, currentBlockNumber);
         
-        results.push({
-          fileName: parsed.fileName,
-          fileCid: parsed.fileCid,
-          fileSize: `${queryResult.responseFileSize} (${parsed.fileSize})`,
-          fileOnchainStatus: queryResult.fileOnchainStatus,
-          fileReplicas: queryResult.fileReplicas,
-        });
-        
-        // Log progress
-        process.stdout.write(`Processed ${lineNumber}/${lines.length}: ${parsed.fileCid}\r`);
+        if (queryResult.success) {
+          results.push(queryResult);
+          console.log(`Successfully processed CID ${parsed.fileCid}`);
+        } else {
+          console.error(`Failed to process CID ${parsed.fileCid} after 3 attempts`);
+          skippedLines.push({ 
+            lineNumber, 
+            line, 
+            reason: `Failed after 3 attempts: ${queryResult.error}`,
+            fileName: parsed.fileName,
+            fileCid: parsed.fileCid,
+            fileSize: parsed.fileSize
+          });
+        }
       } catch (error) {
-        // If all retries failed, log the error and continue with next CID
-        console.error(`\nError querying CID ${parsed.fileCid} after 3 retries: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Unexpected error processing line ${lineNumber}: ${error.message}`);
         skippedLines.push({ 
           lineNumber, 
           line, 
-          reason: `Query failed after retries: ${error instanceof Error ? error.message : String(error)}`,
-          parsedData: parsed
+          reason: `Unexpected error: ${error.message}`,
+          fileName: parsed.fileName,
+          fileCid: parsed.fileCid,
+          fileSize: parsed.fileSize
         });
       }
     }
 
-    // Make sure to close the API connection
-    if (api) {
-      await api.disconnect();
-    }
-
-    // Output results
-    outputResults(results, skippedLines, saveLog, options);
-    
-  } catch (error) {
-    console.error(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
-  }
-}
-
-function outputResults(
-  results, 
-  skippedLines, 
-  saveLog, 
-  options
-) {
-  try {
-    const saveLogMode = options.saveLogMode || 'default';
-    const minReplicasCount = parseInt(options.minReplicasCount, 10) || 3;
-
-    const table1Lines = [];
-    // TABLE 1 HEADER
-    table1Lines.push('FILE_NAME\tFILE_CID\tFILE_SIZE\tFILE_ONCHAIN_STATUS\tFILE_REPLICAS');
-    // Separator
-    table1Lines.push('----');
-
-    // TABLE 1 DATA
-    results.forEach((item) => {
-      table1Lines.push(
-        `${item.fileName}\t${item.fileCid}\t${item.fileSize}\t${item.fileOnchainStatus}\t${item.fileReplicas}`
-      );
-    });
-
-    // TABLE 2 HEADER
-    const table2Lines = [];
-    table2Lines.push('FILE_NAME\tFILE_CID\tFILE_SIZE(INPUT FILE SIZE ONLY)');
-    // Separator
-    table2Lines.push('----');
-
-    const table2Data = results
-      .filter(
-        (item) =>
-          item.fileOnchainStatus !== 'Success' ||
-          (item.fileOnchainStatus === 'Success' && item.fileReplicas < minReplicasCount)
-      )
-      .map((item) => {
-        // Extract input file size part
-        const inputFileSizeMatch = item.fileSize.match(/\((\d+)\)/);
-        const inputFileSize = inputFileSizeMatch ? inputFileSizeMatch[1] : 'Unknown';
-
-        return `${item.fileName}\t${item.fileCid}\t${inputFileSize}`;
-      });
-
-    table2Lines.push(...table2Data);
-
-    // TABLE 3 for skipped CIDs with parsed data
-    const table3Lines = [];
-    table3Lines.push('SKIPPED_FILE_NAME\tSKIPPED_FILE_CID\tSKIPPED_FILE_SIZE\tREASON');
-    // Separator
-    table3Lines.push('----');
-
-    // Only include skipped lines where we have parsed data
-    const skippedWithData = skippedLines.filter(item => item.parsedData);
-    if (skippedWithData.length > 0) {
-      skippedWithData.forEach(item => {
-        if (item.parsedData) {
-          table3Lines.push(
-            `${item.parsedData.fileName}\t${item.parsedData.fileCid}\t${item.parsedData.fileSize}\t${item.reason}`
-          );
-        }
-      });
-    }
-
-    if (saveLog) {
-      let outputLines = [];
-
-      if (saveLogMode === 'default') {
-        // Include TABLE1, TABLE2, and TABLE3 with headers
-        outputLines.push(...table1Lines);
-        outputLines.push('====');
-        outputLines.push(...table2Lines);
-        
-        if (skippedWithData.length > 0) {
-          outputLines.push('====');
-          outputLines.push(...table3Lines);
-        }
-      } else if (saveLogMode === 'table2') {
-        if (table2Data.length === 0) {
-          // TABLE2 is empty
-          console.log('TABLE2 is empty, no log file generated');
-          // Skip generating the log file
-          return;
-        } else {
-          // Output only TABLE2 data, without headers
-          outputLines.push(...table2Data);
-        }
-      } else {
-        // Default behavior
-        outputLines.push(...table1Lines);
-        outputLines.push('====');
-        outputLines.push(...table2Lines);
-        
-        if (skippedWithData.length > 0) {
-          outputLines.push('====');
-          outputLines.push(...table3Lines);
+    try {
+      outputResults(results, skippedLines, saveLog, options);
+    } catch (error) {
+      console.error(`Error in outputResults: ${error.message}`);
+      console.error(error.stack);
+    } finally {
+      if (api) {
+        try {
+          await api.disconnect();
+          console.log('API disconnected');
+        } catch (error) {
+          console.error(`Error disconnecting API: ${error.message}`);
         }
       }
+      process.exit(0);
+    }
+  });
+}
 
-      // Write outputLines to file
-      const timestamp = new Date().getTime();
-      const outputFileName = `check_status_${timestamp}.log`;
-      const outputFilePath = options.out
-        ? path.resolve(options.out)
-        : path.join(process.cwd(), outputFileName);
+function outputResults(results, skippedLines, saveLog, options) {
+  const saveLogMode = options.saveLogMode || 'default';
+  const minReplicasCount = parseInt(options.minReplicasCount, 10) || 3;
 
+  const table1Lines = [];
+  // TABLE 1 HEADER
+  table1Lines.push('FILE_NAME\tFILE_CID\tFILE_SIZE\tFILE_ONCHAIN_STATUS\tFILE_REPLICAS');
+  // Separator
+  table1Lines.push('----');
+
+  // TABLE 1 DATA
+  results.forEach((item) => {
+    table1Lines.push(
+      `${item.fileName}\t${item.fileCid}\t${item.fileSize}\t${item.fileOnchainStatus}\t${item.fileReplicas}`
+    );
+  });
+
+  // TABLE 2 HEADER
+  const table2Lines = [];
+  table2Lines.push('FILE_NAME\tFILE_CID\tFILE_SIZE(INPUT FILE SIZE ONLY)');
+  // Separator
+  table2Lines.push('----');
+
+  const table2Data = results
+    .filter(
+      (item) =>
+        item.fileOnchainStatus !== 'Success' ||
+        (item.fileOnchainStatus === 'Success' && item.fileReplicas < minReplicasCount)
+    )
+    .map((item) => {
+      // Extract input file size part
+      const inputFileSizeMatch = item.fileSize.match(/\((\d+)\)/);
+      const inputFileSize = inputFileSizeMatch ? inputFileSizeMatch[1] : 'Unknown';
+
+      return `${item.fileName}\t${item.fileCid}\t${inputFileSize}`;
+    });
+
+  table2Lines.push(...table2Data);
+
+  // TABLE 3 for failed CIDs
+  const table3Lines = [];
+  table3Lines.push('FAILED CIDs (SKIPPED AFTER 3 ATTEMPTS)');
+  table3Lines.push('FILE_NAME\tFILE_CID\tFILE_SIZE\tERROR_REASON');
+  // Separator
+  table3Lines.push('----');
+
+  // Add failed CIDs to table3
+  const failedCids = skippedLines.filter(item => item.fileName && item.fileCid && item.fileSize !== undefined);
+  failedCids.forEach((item) => {
+    table3Lines.push(`${item.fileName}\t${item.fileCid}\t${item.fileSize}\t${item.reason}`);
+  });
+
+  if (saveLog) {
+    let outputLines = [];
+
+    if (saveLogMode === 'default') {
+      // Include TABLE1, TABLE2, and TABLE3 with headers
+      outputLines.push(...table1Lines);
+      outputLines.push('====');
+      outputLines.push(...table2Lines);
+      
+      // Only add TABLE3 if there are failed CIDs
+      if (failedCids.length > 0) {
+        outputLines.push('====');
+        outputLines.push(...table3Lines);
+      }
+    } else if (saveLogMode === 'table2') {
+      if (table2Data.length === 0) {
+        // TABLE2 is empty
+        console.log('TABLE2 is empty, no log file generated');
+        // Skip generating the log file
+        return;
+      } else {
+        // Output only TABLE2 data, without headers
+        outputLines.push(...table2Data);
+      }
+    } else {
+      // Default behavior
+      outputLines.push(...table1Lines);
+      outputLines.push('====');
+      outputLines.push(...table2Lines);
+      
+      // Only add TABLE3 if there are failed CIDs
+      if (failedCids.length > 0) {
+        outputLines.push('====');
+        outputLines.push(...table3Lines);
+      }
+    }
+
+    // Write outputLines to file
+    const timestamp = new Date().getTime();
+    const outputFileName = `check_status_${timestamp}.log`;
+    const outputFilePath = options.out
+      ? path.resolve(options.out)
+      : path.join(process.cwd(), outputFileName);
+
+    try {
       // Write the results to file
       fs.writeFileSync(outputFilePath, outputLines.join('\n'));
-
-      console.log(`\nResults have been written to ${outputFilePath}`);
+      console.log(`Results have been written to ${outputFilePath}`);
 
       // Read and display log file content
       const logContent = fs.readFileSync(outputFilePath, 'utf8');
       console.log('Log file content:');
       console.log(logContent);
-    } else {
-      // Do not save log file, output results to console
-      console.log('\nResults:');
-      let outputLines = [];
-      outputLines.push(...table1Lines);
+    } catch (error) {
+      console.error(`Error writing to file: ${error.message}`);
+    }
+  } else {
+    // Do not save log file, output results to console
+    console.log('Results:');
+    let outputLines = [];
+    outputLines.push(...table1Lines);
+    outputLines.push('====');
+    outputLines.push(...table2Lines);
+    
+    // Only add TABLE3 if there are failed CIDs
+    if (failedCids.length > 0) {
       outputLines.push('====');
-      outputLines.push(...table2Lines);
-      
-      if (skippedWithData.length > 0) {
-        outputLines.push('====');
-        outputLines.push(...table3Lines);
-      }
-      
-      console.log(outputLines.join('\n'));
+      outputLines.push(...table3Lines);
     }
+    
+    console.log(outputLines.join('\n'));
+  }
 
-    if (skippedLines.length > 0) {
-      console.log('\nThe following lines were skipped due to errors:');
-      skippedLines.forEach((item) => {
-        console.log(`Line ${item.lineNumber}: ${item.reason}`);
-      });
-    }
-  } catch (error) {
-    console.error(`Error in outputResults: ${error instanceof Error ? error.message : String(error)}`);
+  if (skippedLines.length > 0) {
+    console.log('\nThe following lines were skipped due to errors:');
+    skippedLines.forEach((item) => {
+      console.log(`Line ${item.lineNumber}: ${item.reason}`);
+      if (item.fileName && item.fileCid) {
+        console.log(`File info: ${item.fileName} ${item.fileCid} ${item.fileSize}`);
+      }
+    });
   }
 }
 
-// Add global error handling
-process.on('uncaughtException', (error) => {
-  console.error(`Uncaught exception: ${error.message}`);
-  console.error(error.stack);
-  // Don't exit the process
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  // Don't exit the process
-});
-
-// Main function
-async function main() {
+if (options.input) {
+  const inputFilePath = path.resolve(options.input);
   try {
-    if (options.input) {
-      const inputFilePath = path.resolve(options.input);
-      const inputStream = fs.createReadStream(inputFilePath);
-
-      const rl = readline.createInterface({
-        input: inputStream,
-        crlfDelay: Infinity,
-      });
-
-      await processLines(rl);
-    } else {
-      // Interactive input
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-        prompt: '',
-      });
-
-      console.log('Please enter your input (press Ctrl+D when done to start querying):');
-      rl.prompt();
-
-      await processLines(rl);
-    }
+    const inputStream = fs.createReadStream(inputFilePath);
     
-    // Successful exit
-    process.exit(0);
+    inputStream.on('error', (error) => {
+      console.error(`Error reading input file: ${error.message}`);
+      process.exit(1);
+    });
+
+    const rl = readline.createInterface({
+      input: inputStream,
+      crlfDelay: Infinity,
+    });
+
+    processLines(rl);
   } catch (error) {
-    console.error(`Fatal error in main: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`Error setting up input stream: ${error.message}`);
+    process.exit(1);
+  }
+} else {
+  // Interactive input
+  try {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      prompt: '',
+    });
+
+    console.log('Please enter your input (press Ctrl+D when done to start querying):');
+    rl.prompt();
+
+    processLines(rl);
+  } catch (error) {
+    console.error(`Error setting up interactive input: ${error.message}`);
     process.exit(1);
   }
 }
-
-// Start the program
-main().catch(error => {
-  console.error(`Startup error: ${error instanceof Error ? error.message : String(error)}`);
-  process.exit(1);
-});
