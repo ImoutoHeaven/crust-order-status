@@ -1,26 +1,13 @@
 #!/usr/bin/env node
 
-import * as fs from 'fs';
-import * as path from 'path';
-import { ApiPromise, WsProvider } from '@polkadot/api';
-import { typesBundleForPolkadot } from '@crustio/type-definitions';
-import { Command } from 'commander';
-import * as readline from 'readline';
+const fs = require('fs');
+const path = require('path');
+const { ApiPromise, WsProvider } = require('@polkadot/api');
+const { typesBundleForPolkadot } = require('@crustio/type-definitions');
+const { Command } = require('commander');
+const readline = require('readline');
 
-const program = new Command();
-
-program
-  .option('--input <path>', 'path to input text file')
-  .option('--out <path>', 'path to output log file')
-  .option('--save-log <boolean>', 'whether to save log file (true/false)')
-  .option('--min-replicas-count <number>', 'minimum replicas count', '3')
-  .option('--save-log-mode <mode>', "log save mode: 'default' or 'table2'", 'default')
-  .option('--address <url>', 'Crust Network WebSocket address', 'wss://rpc-crust-mainnet.decoo.io/');
-
-program.parse(process.argv);
-
-const options = program.opts();
-
+// TypeScript interfaces
 interface ParsedLine {
   fileName: string;
   fileCid: string;
@@ -42,37 +29,51 @@ interface SkippedLine {
   parsedData?: ParsedLine;
 }
 
-function parseBoolean(value: string | boolean): boolean {
+const program = new Command();
+
+program
+  .option('--input <path>', 'path to input text file')
+  .option('--out <path>', 'path to output log file')
+  .option('--save-log <boolean>', 'whether to save log file (true/false)')
+  .option('--min-replicas-count <number>', 'minimum replicas count', '3')
+  .option('--save-log-mode <mode>', "log save mode: 'default' or 'table2'", 'default')
+  .option('--address <url>', 'Crust Network WebSocket address', 'wss://rpc-crust-mainnet.decoo.io/');
+
+program.parse(process.argv);
+
+const options = program.opts();
+
+function parseBoolean(value) {
   if (typeof value === 'string') {
     return value.toLowerCase() === 'true';
   }
   return !!value;
 }
 
-const minReplicasCount: number = parseInt(options.minReplicasCount as string, 10) || 3;
+const minReplicasCount = parseInt(options.minReplicasCount, 10) || 3;
 
 // Determine if the user specified --save-log-mode
 const saveLogModeSpecified =
   program.getOptionValueSource('saveLogMode') !== 'default';
 
-const saveLogMode: string = options.saveLogMode || 'default';
+const saveLogMode = options.saveLogMode || 'default';
 
-let saveLog: boolean;
+let saveLog;
 if (saveLogModeSpecified) {
   // When --save-log-mode is specified, saveLog is true regardless of --save-log
   saveLog = true;
 } else if (options.out) {
   saveLog = true;
 } else if (options.saveLog !== undefined) {
-  saveLog = parseBoolean(options.saveLog as string);
+  saveLog = parseBoolean(options.saveLog);
 } else {
   saveLog = false;
 }
 
-async function initApi(): Promise<ApiPromise> {
+async function initApi() {
   try {
     // Use Crust Network's WS address from command line or default
-    let chainWsUrl = options.address as string;
+    let chainWsUrl = options.address;
     
     // Normalize URL by removing trailing slash if present
     chainWsUrl = chainWsUrl.endsWith('/') ? chainWsUrl.slice(0, -1) : chainWsUrl;
@@ -90,7 +91,7 @@ async function initApi(): Promise<ApiPromise> {
   }
 }
 
-function parseLine(line: string): ParsedLine | null {
+function parseLine(line) {
   // Trim whitespace
   line = line.trim();
 
@@ -151,12 +152,12 @@ function parseLine(line: string): ParsedLine | null {
 }
 
 // Helper function for retrying API calls with exponential backoff
-async function retryOperation<T>(
-  operation: () => Promise<T>,
-  maxRetries: number = 3,
-  initialDelay: number = 1000,
-  factor: number = 2
-): Promise<T> {
+async function retryOperation(
+  operation,
+  maxRetries = 3,
+  initialDelay = 1000,
+  factor = 2
+) {
   let currentRetry = 0;
   let delay = initialDelay;
 
@@ -176,7 +177,7 @@ async function retryOperation<T>(
   }
 }
 
-async function queryFileCid(api: ApiPromise, fileCid: string, currentBlockNumber: number): Promise<any> {
+async function queryFileCid(api, fileCid, currentBlockNumber) {
   return retryOperation(async () => {
     const orderState = await api.query.market.filesV2(fileCid);
     const orderJson = orderState.toJSON();
@@ -210,12 +211,12 @@ async function queryFileCid(api: ApiPromise, fileCid: string, currentBlockNumber
   });
 }
 
-async function processLines(rl: readline.Interface): Promise<void> {
+async function processLines(rl) {
   try {
-    const lines: string[] = [];
+    const lines = [];
     
     // Read all lines into memory first
-    await new Promise<void>((resolve) => {
+    await new Promise((resolve) => {
       rl.on('line', (line) => {
         lines.push(line);
       });
@@ -225,8 +226,8 @@ async function processLines(rl: readline.Interface): Promise<void> {
       });
     });
 
-    let api: ApiPromise;
-    let currentBlockNumber: number;
+    let api;
+    let currentBlockNumber;
     
     try {
       // Initialize API once before processing
@@ -240,8 +241,8 @@ async function processLines(rl: readline.Interface): Promise<void> {
       process.exit(1);
     }
 
-    const results: ResultItem[] = [];
-    const skippedLines: SkippedLine[] = [];
+    const results = [];
+    const skippedLines = [];
 
     // Process each line sequentially
     for (let i = 0; i < lines.length; i++) {
@@ -295,16 +296,16 @@ async function processLines(rl: readline.Interface): Promise<void> {
 }
 
 function outputResults(
-  results: ResultItem[], 
-  skippedLines: SkippedLine[], 
-  saveLog: boolean, 
-  options: any
-): void {
+  results, 
+  skippedLines, 
+  saveLog, 
+  options
+) {
   try {
     const saveLogMode = options.saveLogMode || 'default';
-    const minReplicasCount: number = parseInt(options.minReplicasCount as string, 10) || 3;
+    const minReplicasCount = parseInt(options.minReplicasCount, 10) || 3;
 
-    const table1Lines: string[] = [];
+    const table1Lines = [];
     // TABLE 1 HEADER
     table1Lines.push('FILE_NAME\tFILE_CID\tFILE_SIZE\tFILE_ONCHAIN_STATUS\tFILE_REPLICAS');
     // Separator
@@ -318,7 +319,7 @@ function outputResults(
     });
 
     // TABLE 2 HEADER
-    const table2Lines: string[] = [];
+    const table2Lines = [];
     table2Lines.push('FILE_NAME\tFILE_CID\tFILE_SIZE(INPUT FILE SIZE ONLY)');
     // Separator
     table2Lines.push('----');
@@ -340,7 +341,7 @@ function outputResults(
     table2Lines.push(...table2Data);
 
     // TABLE 3 for skipped CIDs with parsed data
-    const table3Lines: string[] = [];
+    const table3Lines = [];
     table3Lines.push('SKIPPED_FILE_NAME\tSKIPPED_FILE_CID\tSKIPPED_FILE_SIZE\tREASON');
     // Separator
     table3Lines.push('----');
@@ -358,7 +359,7 @@ function outputResults(
     }
 
     if (saveLog) {
-      let outputLines: string[] = [];
+      let outputLines = [];
 
       if (saveLogMode === 'default') {
         // Include TABLE1, TABLE2, and TABLE3 with headers
@@ -396,7 +397,7 @@ function outputResults(
       const timestamp = new Date().getTime();
       const outputFileName = `check_status_${timestamp}.log`;
       const outputFilePath = options.out
-        ? path.resolve(options.out as string)
+        ? path.resolve(options.out)
         : path.join(process.cwd(), outputFileName);
 
       // Write the results to file
@@ -411,7 +412,7 @@ function outputResults(
     } else {
       // Do not save log file, output results to console
       console.log('\nResults:');
-      let outputLines: string[] = [];
+      let outputLines = [];
       outputLines.push(...table1Lines);
       outputLines.push('====');
       outputLines.push(...table2Lines);
@@ -448,10 +449,10 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Main function
-async function main(): Promise<void> {
+async function main() {
   try {
     if (options.input) {
-      const inputFilePath = path.resolve(options.input as string);
+      const inputFilePath = path.resolve(options.input);
       const inputStream = fs.createReadStream(inputFilePath);
 
       const rl = readline.createInterface({
