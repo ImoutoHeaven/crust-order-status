@@ -7,27 +7,30 @@ const { typesBundleForPolkadot } = require('@crustio/type-definitions');
 const { Command } = require('commander');
 const readline = require('readline');
 
-// TypeScript interfaces
-interface ParsedLine {
-  fileName: string;
-  fileCid: string;
-  fileSize: number;
-}
+// JSDoc type definitions instead of TypeScript interfaces
+/**
+ * @typedef {Object} ParsedLine
+ * @property {string} fileName
+ * @property {string} fileCid
+ * @property {number} fileSize
+ */
 
-interface ResultItem {
-  fileName: string;
-  fileCid: string;
-  fileSize: string;
-  fileOnchainStatus: string;
-  fileReplicas: number;
-}
+/**
+ * @typedef {Object} ResultItem
+ * @property {string} fileName
+ * @property {string} fileCid
+ * @property {string} fileSize
+ * @property {string} fileOnchainStatus
+ * @property {number} fileReplicas
+ */
 
-interface SkippedLine {
-  lineNumber: number;
-  line: string;
-  reason: string;
-  parsedData?: ParsedLine;
-}
+/**
+ * @typedef {Object} SkippedLine
+ * @property {number} lineNumber
+ * @property {string} line
+ * @property {string} reason
+ * @property {ParsedLine} [parsedData]
+ */
 
 const program = new Command();
 
